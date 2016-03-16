@@ -14,54 +14,71 @@ Params::Validate::validation_options( allow_extra => 1 );
 
 use vars qw[ $VERSION ];
 
-$VERSION = 0.03;
+$VERSION = 0.04;
 
 1;
 
-sub new
-{
+sub new {
     my $class = shift;
-    my %p = validate( @_,
-                      { mailer      => { type    => SCALAR,
-                                         default => 'Sendmail' },
-                        mailer_args => { type    => ARRAYREF,
-                                         default => [],
-                                       },
-                      }
-                    );
+    my %p     = validate(
+        @_,
+        {
+            mailer => {
+                type    => SCALAR,
+                default => 'Sendmail'
+            },
+            mailer_args => {
+                type    => ARRAYREF,
+                default => [],
+            },
+            send_args => {
+                type    => ARRAYREF,
+                default => [],
+            },
+        }
+    );
 
     my $self = $class->SUPER::new(%p);
 
-    $self->{to} = join ', ', @{ $self->{to} } if ref $self->{to};
+    if ( defined $p{send_args}[0] ) {
 
-    $self->{mailer} = $p{mailer};
-    $self->{mailer_args} = $p{mailer_args};
+        # take first arg of send_args as mailer
+        $self->{mailer} = splice( @{ $p{send_args} }, 0, 1 );
+        $self->{mailer_args} = $p{send_args};
+    }
+    else {
+        # backward compatibility with 0.03
+        $self->{mailer}      = $p{mailer};
+        $self->{mailer_args} = $p{mailer_args};
+    }
+
+    # not needed anymore
+    delete $self->{send_args};
+
+    $self->{to} = join ', ', @{ $self->{to} } if ref $self->{to};
 
     return $self;
 }
 
-sub send_email
-{
+sub send_email {
     my $self = shift;
-    my %p = @_;
+    my %p    = @_;
 
-    my $email = Email::Simple->create( header =>
-                                       [ To      => $self->{to},
-                                         From    => $self->{from},
-                                         Subject => $self->{subject},
-                                       ],
-                                       body => $p{message},
-                                     );
+    my $email = Email::Simple->create(
+        header => [
+            To      => $self->{to},
+            From    => $self->{from},
+            Subject => $self->{subject},
+        ],
+        body => $p{message},
+    );
 
-    my $sender = Email::Send->new( { mailer => $self->{mailer},
-                                     @{ $self->{mailer_args} },
-                                   },
-                                 );
+    my $sender = Email::Send->new( { mailer => $self->{mailer} } );
+    $sender->mailer_args( $self->{mailer_args} );
 
     local $?;
     $sender->send($email);
 }
-
 
 __END__
 
@@ -79,8 +96,7 @@ Log::Dispatch::Email::EmailSend - Subclass of Log::Dispatch::Email that uses Ema
             min_level   => 'emerg',
             to          => [ qw( foo@bar.com bar@baz.org ) ],
             subject     => 'error',
-            mailer      => 'SMTP',
-            mailer_args => [ 'smtp.example.com' ],
+	    send_args   => [ 'SMTP', Host => 'smtp.example.com', ssl => 1 ],
           );
 
   $email->log( message => 'Something bad is happening', level => 'emerg' );
@@ -132,15 +148,27 @@ addresses.  Required.
 A string containing an email address.  This is optional and may not
 work with all mail sending methods.
 
+=item * send_args (\@)
+
+An array reference with the name of the C<Email::Send> mailer
+to use when sending mail in the first position, followed by any
+arguments to the mailer. By default 'Sendmail' is used
+without any arguments.  This overrides mailer and mailer_args.
+
 =item * mailer ($)
 
 The name of the C<Email::Send> mailer to use when sending mail.
+Kept for backwards compatibility with 0.03 and previous versions,
+new code should use send_args.
 Defaults to 'Sendmail.'
 
 =item * mailer_args (\@)
 
 An array reference containing additional arguments to be passed to the
-mailer.  By default, this is empty.
+mailer.
+Kept for backwards compatibility with 0.03 and previous versions,
+new code should use send_args.
+By default, this is empty.
 
 =item * buffered (0 or 1)
 
